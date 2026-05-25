@@ -1,4 +1,4 @@
-# 🛒 Ecommify - Database Design & Optimization
+# Ecommify - Database Design & Optimization
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-336791?logo=postgresql&logoColor=white)](https://www.postgresql.org/)
