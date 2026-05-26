@@ -19,10 +19,10 @@ CREATE EXTENSION IF NOT EXISTS btree_gist;
 
 CREATE TABLE dim_geolocation_zip (
     zip_code_prefix           INTEGER PRIMARY KEY,
-    city                      CITEXT;
+    city                      CITEXT,
     state                     CHAR(2) NOT NULL,
     geom                      geometry(Point, 4326),
-    geog                      geography(Point, 4326);
+    geog                      geography(Point, 4326)
 
 );
 
@@ -137,14 +137,11 @@ CREATE INDEX idx_geo_state_city ON dim_geolocation_zip(state, city);
 -- ============================================================================
 
 -- JSONB y arreglos usan GIN para busqueda por contencion.
-CREATE INDEX IF NOT EXISTS idx_products_specifications_gin
-ON products USING GIN (product_specifications);
+CREATE INDEX IF NOT EXISTS idx_products_specifications_gin ON products USING GIN (product_specifications);
 
-CREATE INDEX IF NOT EXISTS idx_order_reviews_content_gin
-ON order_reviews USING GIN (review_content);
+CREATE INDEX IF NOT EXISTS idx_order_reviews_content_gin ON order_reviews USING GIN (review_content);
 
-CREATE INDEX IF NOT EXISTS idx_order_reviews_response_period_gist
-ON order_reviews USING GIST (review_response_period);
+CREATE INDEX IF NOT EXISTS idx_order_reviews_response_period_gist ON order_reviews USING GIST (review_response_period);
 
 -- --------------------------------------------------------------------------
 --Funciones de normalizacion textual y seudonimizacion
