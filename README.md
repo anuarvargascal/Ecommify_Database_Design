@@ -323,3 +323,167 @@ La reconciliación puede mostrar diferencias por:
 - [MongoDB Data Modeling](https://www.mongodb.com/docs/manual/data-modeling/)
 - [Aggregation Pipeline](https://www.mongodb.com/docs/manual/aggregation/)
 - [Building with Patterns](https://www.mongodb.com/blog/post/building-with-patterns-a-summary)
+
+# 📦 Ecommify — Módulo PostgreSQL (Transaccional)
+
+Implementación técnica de una base de datos PostgreSQL para un escenario de comercio electrónico. Incluye scripts de creación del modelo, carga de datos CSV, uso de extensiones de PostgreSQL, tipos avanzados como JSONB y TSTZRANGE, análisis geográfico con PostGIS, optimización de consultas mediante índices especializados y evaluación de rendimiento con EXPLAIN ANALYZE. El proyecto también incorpora una estrategia de particionamiento mensual para la tabla orders y documentación comparativa antes/después de las optimizaciones.
+
+## Estructura de Archivos
+
+```
+postgresql/
+├── queris/
+│   ├── 01_consultas.sql               ← Consultas iniciales y optimizadas
+│   ├── 02_particionamiento.sql        ← Estrategia particonamiento Ordenes 
+├── schema/
+│   ├── 01_script_ecommerce.sql        ← tablas, indices, restricciones, extensiones
+│   ├── 02_diagrama_mer.drawio         ← Diagrama modelo entidad relacion en draw.io
+├── explain postgresql/                ← Planes de ejecucción de consultas inciales y optimizadas 
+└── explain particionamiento           ← Planes de ejecucción del particionamiento de Ordenes
+└── evidencias
+│   └── screenshots
+└── datos fuentes    
+```
+
+# Datos fuente
+
+Esta carpeta contiene los archivos CSV usados para poblar el esquema `ecommerce`.
+
+| Archivo | Descripción | Filas |
+|---|---|---:|
+| `customers.csv` | Clientes y prefijo postal. | 99.441 |
+| `sellers.csv` | Vendedores y prefijo postal. | 3.095 |
+| `dim_geolocation_zip.csv` | Dimensión geográfica por prefijo postal, ciudad, estado y coordenadas promedio. | 15.078 |
+| `product_categories.csv` | Catálogo de categorías y equivalencia en inglés. | 71 |
+| `products.csv` | Productos y especificaciones en JSON. | 32.951 |
+| `orders.csv` | Órdenes de compra y fechas del ciclo de pedido. | 99.441 |
+| `order_items.csv` | Ítems de las órdenes, producto, vendedor, precio y flete. | 112.650 |
+| `order_payments.csv` | Pagos, tipo de pago, cuotas y valor. | 103.886 |
+| `order_reviews.csv` | Reseñas, calificación, contenido y periodo de respuesta. | 99.224 |
+
+## Observaciones de carga
+
+- `products.csv` usa delimitador `;` porque contiene JSON en una columna.
+- `dim_geolocation_zip.csv` usa delimitador `;` e incluye columnas auxiliares `latitude_avg` y `longitude_avg`.
+- Los demás archivos usan delimitador `,`.
+
+# Modelo de datos
+
+El modelo representa un dominio de comercio electrónico con entidades transaccionales, entidades maestras y datos geográficos. El esquema usa el namespace `ecommerce`.
+
+## Tablas principales
+
+| Tabla | Tipo | Descripción funcional | Filas en CSV |
+|---|---|---|---:|
+| `customers` | Maestra | Clientes y código postal asociado. | 99.441 |
+| `sellers` | Maestra | Vendedores y código postal asociado. | 3.095 |
+| `dim_geolocation_zip` | Dimensión | Código postal, ciudad, estado y localización geográfica. | 15.078 |
+| `product_categories` | Catálogo | Categorías de producto y traducción al inglés. | 71 |
+| `products` | Maestra | Productos, categoría y especificaciones semiestructuradas en `JSONB`. | 32.951 |
+| `orders` | Transaccional | Órdenes de compra, cliente, estado y fechas del ciclo de pedido. | 99.441 |
+| `order_items` | Transaccional detalle | Ítems por orden, producto, vendedor, precio y flete. | 112.650 |
+| `order_payments` | Transaccional detalle | Pagos por orden, tipo de pago, cuotas y valor. | 103.886 |
+| `order_reviews` | Transaccional / experiencia | Reseñas por orden, calificación, contenido `JSONB` y periodo `TSTZRANGE`. | 99.224 |
+
+## Relaciones principales
+
+- `orders.customer_id` referencia `customers.customer_id`.
+- `order_items.order_id` referencia `orders.order_id`.
+- `order_items.product_id` referencia `products.product_id`.
+- `order_items.seller_id` referencia `sellers.seller_id`.
+- `order_payments.order_id` referencia `orders.order_id`.
+- `order_reviews.order_id` referencia `orders.order_id`.
+- `products.product_category_name` referencia `product_categories.product_category_name`.
+- `customers.customer_zip_code_prefix` y `sellers.seller_zip_code_prefix` referencian `dim_geolocation_zip.zip_code_prefix`.
+
+## Tipos avanzados usados
+
+- `JSONB`: especificaciones de producto y contenido de reseñas.
+- `TSTZRANGE`: intervalo entre creación y respuesta de reseña.
+- `citext`: manejo de ciudad sin sensibilidad a mayúsculas/minúsculas.
+- `geometry(Point,4326)` y `geography(Point,4326)`: localización espacial para análisis geográfico.
+
+## Índices relevantes
+
+- B-tree sobre llaves de join y agrupación.
+- GIN sobre columnas `JSONB`.
+- GiST sobre columnas geográficas y rangos temporales.
+- Índices parciales para filtros recurrentes.
+- Índice funcional descendente sobre peso extraído de `JSONB`.
+- Índice covering sobre pagos para favorecer `Index Only Scan`.
+
+# Optimización de consultas
+
+El proyecto documenta el análisis de consultas mediante `EXPLAIN ANALYZE` y `EXPLAIN (ANALYZE, BUFFERS)`. La evaluación se centra en tiempo real de ejecución, buffers, filas estimadas, filas reales, tipos de scan, joins, uso de disco temporal y equivalencia del resultado funcional.
+
+## Resumen de consultas optimizadas
+
+| Consulta | Problema identificado | Optimización aplicada | Resultado esperado |
+|---:|---|---|---|
+| 14 | Agregación directa con `COUNT(DISTINCT)` y alto volumen intermedio. | Preagregación por `order_id` e índice `order_items(order_id)`. | Menor tiempo de ejecución y eliminación de disco temporal. |
+| 5 | Filtrado de reseñas negativas con evaluación posterior de contenido `JSONB`. | Índice parcial sobre reseñas con mensaje y baja calificación; CTE de prefiltrado. | Reducción de lectura física y menor presión de buffers. |
+| 10 | Filtro temporal y score en reseñas con duplicidad por ítems. | Índice parcial GiST sobre `review_response_period` y preagregación de categorías por orden. | Reducción de filas candidatas y mejora en consulta por ventana temporal. |
+| 12 | Escaneo completo de productos y cast sobre `JSONB` para ordenar por peso. | Índice funcional parcial B-tree descendente sobre `product_weight_g`. | Uso de `Index Scan`, eliminación de sort explícito y respuesta rápida para Top-N. |
+| 7 | `COUNT(DISTINCT order_id)` obliga a ordenamiento costoso. | Preagrupación por orden e índice covering con `INCLUDE(payment_value)`. | `Index Only Scan`, eliminación de temporales y reducción de bloques procesados. |
+| 15 | Búsqueda geográfica con escaneo de vendedores. | Uso combinado de GiST geográfico y B-tree por prefijo postal. | Mejor búsqueda de vendedores cercanos a un cliente. |
+
+## Métricas destacadas del informe
+
+| Consulta | Mejora reportada |
+|---:|---:|
+| 12 | Reducción aproximada de 98,12 % en tiempo de ejecución. |
+| 7 | Reducción aproximada de 84,97 % en tiempo de ejecución. |
+| 14 | Reducción aproximada de 69,11 % en tiempo de ejecución. |
+| 5 | Reducción aproximada de 50,06 % en tiempo de ejecución. |
+| 10 | Reducción aproximada de 26,34 % en tiempo de ejecución. |
+
+## Criterio de interpretación
+
+El campo `cost` de PostgreSQL no debe interpretarse como milisegundos. Las conclusiones de rendimiento deben basarse en mediciones reales: `actual time`, filas reales, loops, buffers y uso de disco temporal.
+
+# Estrategia de particionamiento de `orders`
+
+## Tabla seleccionada
+
+La tabla seleccionada para particionamiento es `orders`, por ser la tabla transaccional central del modelo y porque participa en filtros por fecha, estado y cumplimiento logístico.
+
+## Clave de particionamiento
+
+```sql
+order_purchase_timestamp
+```
+
+## Tipo de particionamiento
+
+Particionamiento por rango mensual (`RANGE`) con particiones históricas desde septiembre de 2016 hasta octubre de 2018 y partición `DEFAULT` para valores fuera de rango.
+
+## Tabla de validación
+
+El script crea una tabla `orders_part` para validar rendimiento frente a `orders`.
+
+```sql
+PARTITION BY RANGE (order_purchase_timestamp)
+```
+
+## Consideración sobre llave primaria
+
+En PostgreSQL, una llave primaria o restricción única sobre una tabla particionada debe incluir la columna de particionamiento. Por esta razón, el script define una llave primaria compuesta:
+
+```sql
+(order_id, order_purchase_timestamp)
+```
+
+Adicionalmente, conserva un índice no único por `order_id` para favorecer joins y búsquedas por orden.
+
+## Beneficio esperado
+
+El beneficio principal se obtiene por `partition pruning`, siempre que las consultas incluyan predicados compatibles con `order_purchase_timestamp`. Los casos más beneficiados son:
+
+- Reportes por mes o rango de fechas.
+- Cohortes temporales.
+- Consultas de estado de pedido por periodo.
+- Métricas operativas de entrega y cumplimiento logístico.
+
+## Limitación
+
+Las consultas globales sin filtro temporal no se benefician de forma directa y pueden incrementar el costo de planificación por la cantidad de particiones evaluadas.
