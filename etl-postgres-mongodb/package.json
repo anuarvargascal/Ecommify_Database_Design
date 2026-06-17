@@ -1,0 +1,26 @@
+{
+  "name": "etl-postgres-mongodb",
+  "version": "1.0.0",
+  "description": "ETL incremental de PostgreSQL a MongoDB con reconciliación y scheduler",
+  "main": "src/index.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node src/index.js",
+    "sync": "node src/etl.js"
+  },
+  "keywords": [
+    "etl",
+    "postgresql",
+    "mongodb",
+    "nodejs",
+    "cron"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "mongodb": "^6.8.0",
+    "node-cron": "^3.0.3",
+    "pg": "^8.12.0"
+  }
+}
