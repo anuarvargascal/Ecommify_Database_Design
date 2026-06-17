@@ -105,7 +105,7 @@ load("scripts/05_explain_analysis.js")
 | 4 | Q12: Productos pesados | Cast JSONB a numeric | Campo numérico nativo |
 | 5 | Q7: Pagos por tipo | Single-table | $unwind + $group |
 
-
+---
 
 # ETL PostgreSQL → MongoDB (etl-postgres-mongodb)
 
