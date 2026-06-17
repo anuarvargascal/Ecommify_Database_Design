@@ -323,3 +323,18 @@ La reconciliación puede mostrar diferencias por:
 - [MongoDB Data Modeling](https://www.mongodb.com/docs/manual/data-modeling/)
 - [Aggregation Pipeline](https://www.mongodb.com/docs/manual/aggregation/)
 - [Building with Patterns](https://www.mongodb.com/blog/post/building-with-patterns-a-summary)
+
+
+## Estructura de Archivos
+
+```
+postgresql/
+├── queris/
+│   ├── 01_consultas.sql               ← Consultas iniciales y optimizadas
+│   ├── 02_particionamiento.sql        ← Estrategia particonamiento Ordenes 
+│   ├── 03_script_ecommerce.sql        ← tablas, indices, restricciones, extensiones
+│   ├── 04_aggregation_pipelines.js    ← 5 pipelines + 3 consultas complejas
+│   └── 05_explain_analysis.js         ← Evidencias de rendimiento
+└── evidencias
+    └── screenshots
+```
