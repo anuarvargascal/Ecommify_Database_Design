@@ -8,47 +8,89 @@
 > **Diseño conceptual, lógico y físico de base de datos para plataforma de e-commerce**  
 > *Arquitectura híbrida transaccional-analítica con PostgreSQL y MongoDB*
 
+---
+
+### 📋 Tabla de Contenido
+- [Ecommify - Database Design \& Optimization](#ecommify---database-design--optimization)
+    - [📋 Tabla de Contenido](#-tabla-de-contenido)
+  - [Sobre el Proyecto](#sobre-el-proyecto)
+    - [Contexto Académico](#contexto-académico)
+  - [Ecommify — Módulo PostgreSQL (Transaccional)](#ecommify--módulo-postgresql-transaccional)
+    - [Estructura de Archivos](#estructura-de-archivos)
+    - [Datos fuente](#datos-fuente)
+      - [Observaciones de carga](#observaciones-de-carga)
+    - [Modelo de datos](#modelo-de-datos)
+      - [Tablas principales](#tablas-principales)
+      - [Relaciones principales](#relaciones-principales)
+      - [Tipos avanzados usados](#tipos-avanzados-usados)
+      - [Índices relevantes](#índices-relevantes)
+    - [Optimización de consultas](#optimización-de-consultas)
+      - [Métricas destacadas del informe](#métricas-destacadas-del-informe)
+    - [Estrategia de particionamiento de `orders`](#estrategia-de-particionamiento-de-orders)
+  - [Ecommify — Módulo MongoDB (Analítico)](#ecommify--módulo-mongodb-analítico)
+    - [Arquitectura](#arquitectura)
+    - [Estructura de Archivos](#estructura-de-archivos-1)
+    - [Setup Rápido](#setup-rápido)
+      - [Prerrequisitos](#prerrequisitos)
+      - [Pasos de ejecución](#pasos-de-ejecución)
+    - [Colecciones](#colecciones)
+    - [Índices (20 total)](#índices-20-total)
+    - [Aggregation Pipelines](#aggregation-pipelines)
+  - [ETL PostgreSQL → MongoDB (etl-postgres-mongodb)](#etl-postgresql--mongodb-etl-postgres-mongodb)
+    - [¿Qué hace este proyecto?](#qué-hace-este-proyecto)
+    - [Estructura](#estructura)
+    - [Requisitos previos](#requisitos-previos)
+    - [Instalación paso a paso](#instalación-paso-a-paso)
+    - [Configuración de variables de entorno](#configuración-de-variables-de-entorno)
+    - [Comandos disponibles](#comandos-disponibles)
+    - [Funcionamiento interno](#funcionamiento-interno)
+      - [Watermark](#watermark)
+      - [Upsert en MongoDB](#upsert-en-mongodb)
+      - [Reconciliación](#reconciliación)
+    - [Troubleshooting Básico](#troubleshooting-básico)
+  - [Referencias](#referencias)
+
+---
 
 ## Sobre el Proyecto
 
 ### Contexto Académico
-
 Este proyecto representa el **diseño integral de una base de datos para un sistema de comercio electrónico** denominado **Ecommify**, desarrollado como parte de la **Actividad 5** del curso **Diseño y Optimización de Bases de Datos** en la Universidad de la Sabana.
 
 El proyecto se basa en el [**dataset Olist**](https://www.kaggle.com/datasets/olistbr/brazilian-ecommerce), un conjunto de datos real de comercio electrónico brasileño con aproximadamente **100,000 pedidos** registrados entre 2016 y 2018, disponible en Kaggle. Este dataset proporciona información detallada sobre clientes, vendedores, productos, pagos, reseñas y geolocalización.
 
 ---
 
-# 1) Ecommify — Módulo PostgreSQL (Transaccional)
+## Ecommify — Módulo PostgreSQL (Transaccional)
 
 Implementación técnica de una base de datos PostgreSQL para un escenario de comercio electrónico. Incluye scripts de creación del modelo, carga de datos CSV, uso de extensiones de PostgreSQL, tipos avanzados como JSONB y TSTZRANGE, análisis geográfico con PostGIS, optimización de consultas mediante índices especializados y evaluación de rendimiento con EXPLAIN ANALYZE. El proyecto también incorpora una estrategia de particionamiento mensual para la tabla orders y documentación comparativa antes/después de las optimizaciones.
 
-## Estructura de Archivos
+### Estructura de Archivos
 
-```
+```text
 postgresql/
-├── queris/
+├── queries/
 │   ├── 01_consultas.sql               ← Consultas iniciales y optimizadas
-│   ├── 02_particionamiento.sql        ← Estrategia particonamiento Ordenes 
+│   ├── 02_particionamiento.sql        ← Estrategia particionamiento Ordenes 
 ├── schema/
 │   ├── 01_script_ecommerce.sql        ← tablas, indices, restricciones, extensiones
 │   ├── 02_diagrama_mer.drawio         ← Diagrama modelo entidad relacion en draw.io
-├── explain postgresql/                ← Planes de ejecucción de consultas inciales y optimizadas 
-└── explain particionamiento           ← Planes de ejecucción del particionamiento de Ordenes
+├── explain postgresql/                ← Planes de ejecución de consultas iniciales y optimizadas 
+└── explain particionamiento           ← Planes de ejecución del particionamiento de Ordenes
 └── evidencias
 │   └── screenshots
 └── datos fuentes    
 ```
 
-## Datos fuente
+### Datos fuente
 
 Esta carpeta contiene los archivos CSV usados para poblar el esquema `ecommerce`.
 
 | Archivo | Descripción | Filas |
-|---|---|---:|
+| :--- | :--- | ---: |
 | `customers.csv` | Clientes y prefijo postal. | 99.441 |
 | `sellers.csv` | Vendedores y prefijo postal. | 3.095 |
-| `dim_geolocation_zip.csv` | Dimensión geográfica por prefijo postal, ciudad, estado y coordenadas promedio. | 15.078 |
+| `dim_geolocation_zip.csv` | Dimensión geográfica por prefijo postal y coordenadas promedio. | 15.078 |
 | `product_categories.csv` | Catálogo de categorías y equivalencia en inglés. | 71 |
 | `products.csv` | Productos y especificaciones en JSON. | 32.951 |
 | `orders.csv` | Órdenes de compra y fechas del ciclo de pedido. | 99.441 |
@@ -56,32 +98,29 @@ Esta carpeta contiene los archivos CSV usados para poblar el esquema `ecommerce`
 | `order_payments.csv` | Pagos, tipo de pago, cuotas y valor. | 103.886 |
 | `order_reviews.csv` | Reseñas, calificación, contenido y periodo de respuesta. | 99.224 |
 
-### Observaciones de carga
-
+#### Observaciones de carga
 - `products.csv` usa delimitador `;` porque contiene JSON en una columna.
 - `dim_geolocation_zip.csv` usa delimitador `;` e incluye columnas auxiliares `latitude_avg` y `longitude_avg`.
 - Los demás archivos usan delimitador `,`.
 
-## Modelo de datos
+### Modelo de datos
 
 El modelo representa un dominio de comercio electrónico con entidades transaccionales, entidades maestras y datos geográficos. El esquema usa el namespace `ecommerce`.
 
-### Tablas principales
-
+#### Tablas principales
 | Tabla | Tipo | Descripción funcional | Filas en CSV |
-|---|---|---|---:|
+| :--- | :--- | :--- | ---: |
 | `customers` | Maestra | Clientes y código postal asociado. | 99.441 |
 | `sellers` | Maestra | Vendedores y código postal asociado. | 3.095 |
 | `dim_geolocation_zip` | Dimensión | Código postal, ciudad, estado y localización geográfica. | 15.078 |
 | `product_categories` | Catálogo | Categorías de producto y traducción al inglés. | 71 |
-| `products` | Maestra | Productos, categoría y especificaciones semiestructuradas en `JSONB`. | 32.951 |
-| `orders` | Transaccional | Órdenes de compra, cliente, estado y fechas del ciclo de pedido. | 99.441 |
-| `order_items` | Transaccional detalle | Ítems por orden, producto, vendedor, precio y flete. | 112.650 |
-| `order_payments` | Transaccional detalle | Pagos por orden, tipo de pago, cuotas y valor. | 103.886 |
-| `order_reviews` | Transaccional / experiencia | Reseñas por orden, calificación, contenido `JSONB` y periodo `TSTZRANGE`. | 99.224 |
+| `products` | Maestra | Productos, categoría y especificaciones con `JSONB`. | 32.951 |
+| `orders` | Transaccional | Órdenes de compra, cliente, estado y fechas. | 99.441 |
+| `order_items` | Detalle | Ítems por orden, producto, vendedor, precio y flete. | 112.650 |
+| `order_payments` | Detalle | Pagos por orden, tipo de pago, cuotas y valor. | 103.886 |
+| `order_reviews` | Transaccional | Reseñas por orden, contenido `JSONB` y periodo `TSTZRANGE`. | 99.224 |
 
-### Relaciones principales
-
+#### Relaciones principales
 - `orders.customer_id` referencia `customers.customer_id`.
 - `order_items.order_id` referencia `orders.order_id`.
 - `order_items.product_id` referencia `products.product_id`.
@@ -91,15 +130,13 @@ El modelo representa un dominio de comercio electrónico con entidades transacci
 - `products.product_category_name` referencia `product_categories.product_category_name`.
 - `customers.customer_zip_code_prefix` y `sellers.seller_zip_code_prefix` referencian `dim_geolocation_zip.zip_code_prefix`.
 
-### Tipos avanzados usados
-
+#### Tipos avanzados usados
 - `JSONB`: especificaciones de producto y contenido de reseñas.
 - `TSTZRANGE`: intervalo entre creación y respuesta de reseña.
 - `citext`: manejo de ciudad sin sensibilidad a mayúsculas/minúsculas.
 - `geometry(Point,4326)` y `geography(Point,4326)`: localización espacial para análisis geográfico.
 
-### Índices relevantes
-
+#### Índices relevantes
 - B-tree sobre llaves de join y agrupación.
 - GIN sobre columnas `JSONB`.
 - GiST sobre columnas geográficas y rangos temporales.
@@ -107,103 +144,59 @@ El modelo representa un dominio de comercio electrónico con entidades transacci
 - Índice funcional descendente sobre peso extraído de `JSONB`.
 - Índice covering sobre pagos para favorecer `Index Only Scan`.
 
-## Optimización de consultas
+### Optimización de consultas
 
-El proyecto documenta el análisis de consultas mediante `EXPLAIN ANALYZE` y `EXPLAIN (ANALYZE, BUFFERS)`. La evaluación se centra en tiempo real de ejecución, buffers, filas estimadas, filas reales, tipos de scan, joins, uso de disco temporal y equivalencia del resultado funcional.
-
-### Resumen de consultas optimizadas
+El proyecto documenta el análisis de consultas mediante `EXPLAIN ANALYZE` y `EXPLAIN (ANALYZE, BUFFERS)`.
 
 | Consulta | Problema identificado | Optimización aplicada | Resultado esperado |
-|---:|---|---|---|
-| 14 | Agregación directa con `COUNT(DISTINCT)` y alto volumen intermedio. | Preagregación por `order_id` e índice `order_items(order_id)`. | Menor tiempo de ejecución y eliminación de disco temporal. |
-| 5 | Filtrado de reseñas negativas con evaluación posterior de contenido `JSONB`. | Índice parcial sobre reseñas con mensaje y baja calificación; CTE de prefiltrado. | Reducción de lectura física y menor presión de buffers. |
-| 10 | Filtro temporal y score en reseñas con duplicidad por ítems. | Índice parcial GiST sobre `review_response_period` y preagregación de categorías por orden. | Reducción de filas candidatas y mejora en consulta por ventana temporal. |
-| 12 | Escaneo completo de productos y cast sobre `JSONB` para ordenar por peso. | Índice funcional parcial B-tree descendente sobre `product_weight_g`. | Uso de `Index Scan`, eliminación de sort explícito y respuesta rápida para Top-N. |
-| 7 | `COUNT(DISTINCT order_id)` obliga a ordenamiento costoso. | Preagrupación por orden e índice covering con `INCLUDE(payment_value)`. | `Index Only Scan`, eliminación de temporales y reducción de bloques procesados. |
-| 15 | Búsqueda geográfica con escaneo de vendedores. | Uso combinado de GiST geográfico y B-tree por prefijo postal. | Mejor búsqueda de vendedores cercanos a un cliente. |
+|---:|:---|:---|:---|
+| 14 | Agregación directa con `COUNT(DISTINCT)`. | Preagregación por `order_id` e índice `order_items(order_id)`. | Menor tiempo y eliminación de disco temporal. |
+| 5 | Filtrado de reseñas negativas en `JSONB`. | Índice parcial sobre reseñas con mensaje y baja calificación. | Reducción de lectura física. |
+| 10 | Filtro temporal/score con duplicidad. | Índice parcial GiST sobre `review_response_period`. | Mejora en consulta por ventana temporal. |
+| 12 | Escaneo completo y cast sobre `JSONB`. | Índice funcional parcial B-tree descendente sobre `product_weight_g`. | Uso de `Index Scan`, respuesta rápida para Top-N. |
+| 7 | `COUNT(DISTINCT)` costoso. | Preagrupación por orden e índice covering con `INCLUDE`. | `Index Only Scan` y eliminación de temporales. |
+| 15 | Búsqueda geográfica lenta. | Uso de GiST geográfico y B-tree por prefijo postal. | Mejor búsqueda de vendedores cercanos. |
 
-### Métricas destacadas del informe
-
+#### Métricas destacadas del informe
 | Consulta | Mejora reportada |
-|---:|---:|
+| :--- | ---: |
 | 12 | Reducción aproximada de 98,12 % en tiempo de ejecución. |
 | 7 | Reducción aproximada de 84,97 % en tiempo de ejecución. |
 | 14 | Reducción aproximada de 69,11 % en tiempo de ejecución. |
 | 5 | Reducción aproximada de 50,06 % en tiempo de ejecución. |
 | 10 | Reducción aproximada de 26,34 % en tiempo de ejecución. |
 
-### Criterio de interpretación
+> **Criterio de interpretación:** El campo `cost` no son milisegundos; basarse en `actual time`, buffers y uso de disco temporal.
 
-El campo `cost` de PostgreSQL no debe interpretarse como milisegundos. Las conclusiones de rendimiento deben basarse en mediciones reales: `actual time`, filas reales, loops, buffers y uso de disco temporal.
+### Estrategia de particionamiento de `orders`
 
-## Estrategia de particionamiento de `orders`
-
-### Tabla seleccionada
-
-La tabla seleccionada para particionamiento es `orders`, por ser la tabla transaccional central del modelo y porque participa en filtros por fecha, estado y cumplimiento logístico.
-
-### Clave de particionamiento
-
-```sql
-order_purchase_timestamp
-```
-
-### Tipo de particionamiento
-
-Particionamiento por rango mensual (`RANGE`) con particiones históricas desde septiembre de 2016 hasta octubre de 2018 y partición `DEFAULT` para valores fuera de rango.
-
-### Tabla de validación
-
-El script crea una tabla `orders_part` para validar rendimiento frente a `orders`.
-
-```sql
-PARTITION BY RANGE (order_purchase_timestamp)
-```
-
-### Consideración sobre llave primaria
-
-En PostgreSQL, una llave primaria o restricción única sobre una tabla particionada debe incluir la columna de particionamiento. Por esta razón, el script define una llave primaria compuesta:
-
-```sql
-(order_id, order_purchase_timestamp)
-```
-
-Adicionalmente, conserva un índice no único por `order_id` para favorecer joins y búsquedas por orden.
-
-### Beneficio esperado
-
-El beneficio principal se obtiene por `partition pruning`, siempre que las consultas incluyan predicados compatibles con `order_purchase_timestamp`. Los casos más beneficiados son:
-
-- Reportes por mes o rango de fechas.
-- Cohortes temporales.
-- Consultas de estado de pedido por periodo.
-- Métricas operativas de entrega y cumplimiento logístico.
-
-### Limitación
-
-Las consultas globales sin filtro temporal no se benefician de forma directa y pueden incrementar el costo de planificación por la cantidad de particiones evaluadas.
+- **Tabla seleccionada:** `orders`, por ser central y filtrar por fecha/estado.
+- **Clave de particionamiento:** `order_purchase_timestamp`.
+- **Tipo de particionamiento:** Por rango mensual (`RANGE`). Particiones históricas: Sep 2016 - Oct 2018 + `DEFAULT`.
+- **Consideración sobre llave primaria:** Debe incluir la columna de particionamiento. Llave primaria compuesta: `(order_id, order_purchase_timestamp)`.
+- **Beneficio esperado:** `partition pruning` para reportes por mes, cohortes y métricas logísticas.
+- **Limitación:** Consultas globales sin filtro temporal pueden incrementar costo de planificación.
 
 ---
 
-# 2) Ecommify — Módulo MongoDB (Analítico)
+## Ecommify — Módulo MongoDB (Analítico)
 
-##  Arquitectura
+### Arquitectura
 
+```text
+┌──────────────┐        ETL batch        ┌──────────────────┐
+│  PostgreSQL  │ ──────────────────────► │  MongoDB Atlas   │
+│  (Supabase)  │       incremental       │  (Free Tier M0)  │
+├──────────────┤                         ├──────────────────┤
+│ • 8 tablas   │                         │ • 5 colecciones  │
+│ • ACID, FK   │                         │ • Documentos JSON│
+│ • Transac.   │                         │ • Analítico      │
+└──────────────┘                         └──────────────────┘
 ```
-┌─────────────────────┐        ETL batch        ┌─────────────────────┐
-│   PostgreSQL         │ ──────────────────────► │   MongoDB Atlas     │
-│   (Supabase)         │    incremental          │   (Free Tier M0)    │
-│                      │                         │                      │
-│  • 8 tablas 3FN      │                         │  • 5 colecciones     │
-│  • ACID, FK, CHECK   │                         │  • Documentos JSON   │
-│  • PostGIS, JSONB    │                         │  • Aggregation       │
-│  • Transaccional     │                         │  • Analítico         │
-└─────────────────────┘                          └─────────────────────┘
-```
 
-## Estructura de Archivos
+### Estructura de Archivos
 
-```
+```text
 mongodb/
 ├── scripts/
 │   ├── 01_create_collections.js       ← Creación de BD, colecciones y JSON Schema
@@ -215,278 +208,121 @@ mongodb/
     └── screenshots
 ```
 
-## Setup Rápido
+### Setup Rápido
 
-### Prerrequisitos
+#### Prerrequisitos
+1. Cuenta en [MongoDB Atlas](https://www.mongodb.com/cloud/atlas).
+2. [mongosh](https://www.mongodb.com/docs/mongodb-shell/) instalado.
 
-1. Cuenta en [MongoDB Atlas](https://www.mongodb.com/cloud/atlas) (Free Tier M0)
-2. [mongosh](https://www.mongodb.com/docs/mongodb-shell/) instalado localmente
-
-### Pasos
-
+#### Pasos de ejecución
 ```bash
 # 1. Conectar a MongoDB Atlas
 mongosh "mongodb+srv://<tu-cluster>.mongodb.net/" --username <usuario>
 
-# 2. Crear colecciones con validación
+# 2. Ejecutar scripts en orden
 load("scripts/01_create_collections.js")
-
-# 3. Insertar datos de ejemplo
 load("scripts/02_insert_data.js")
-
-# 4. Crear índices
 load("scripts/03_create_indexes.js")
-
-# 5. Ejecutar pipelines
 load("scripts/04_aggregation_pipelines.js")
-
-# 6. Verificar rendimiento
 load("scripts/05_explain_analysis.js")
 ```
 
-##  Colecciones
+### Colecciones
 
-| Colección | Documentos | Patrones | Propósito |
-|-----------|-----------|----------|-----------|
-| `product_catalog` | 15 | Attribute, Computed, Subset, Extended Reference | Catálogo enriquecido |
-| `order_analytics` | 12 | Embedded, Extended Reference, Computed, Outlier | Pedido consolidado |
+| Colección | Documentos | Patrones Aplicados | Propósito |
+| :--- | :--- | :--- | :--- |
+| `product_catalog` | 15 | Attribute, Computed, Subset, Extended Ref | Catálogo enriquecido |
+| `order_analytics` | 12 | Embedded, Extended Ref, Computed, Outlier | Pedido consolidado |
 | `reviews_analytics` | 10 | Reference, Extended Reference, Attribute | Reseñas enriquecidas |
 | `user_behavior` | 6 | Bucket, Computed | Comportamiento de usuario |
 | `geo_sales_summary` | 10 | Computed, Bucket, Subset | Agregados geográficos |
 
-## Índices (20 total)
+### Índices (20 total)
+- 5 únicos (equivalentes a PK).
+- 10 compuestos (cubren patrones frecuentes).
+- 3 parciales (indexan subconjuntos relevantes).
+- 1 de texto (búsqueda en categorías).
+- 1 descendente (ranking por revenue).
 
-- 5 únicos (equivalentes a PK)
-- 10 compuestos (cubren patrones de consulta frecuentes)
-- 3 parciales (solo indexan subconjuntos relevantes)
-- 1 de texto (búsqueda textual en categorías)
-- 1 descendente (ranking por revenue)
-
-## Aggregation Pipelines
+### Aggregation Pipelines
 
 | # | Equivalente PostgreSQL | Complejidad en PG | Ventaja MongoDB |
-|---|----------------------|-------------------|-----------------|
+|---|----|----|----|
 | 1 | Q14: Ranking ventas por estado | 4 tablas, 3 JOINs | 0 JOINs, datos embebidos |
-| 2 | Q5: Reseñas negativas | 5 tablas, filtro JSONB | Acceso directo a review embebida |
-| 3 | Q10: Reseñas temporal | 7 tablas, TSTZRANGE | 0 JOINs, filtro por fecha |
+| 2 | Q5: Reseñas negativas | 5 tablas, filtro JSONB | Acceso directo a review |
+| 3 | Q10: Reseñas temporal | 7 tablas, TSTZRANGE | 0 JOINs, filtro fecha |
 | 4 | Q12: Productos pesados | Cast JSONB a numeric | Campo numérico nativo |
 | 5 | Q7: Pagos por tipo | Single-table | $unwind + $group |
 
 ---
 
-#3 ETL PostgreSQL → MongoDB (etl-postgres-mongodb)
+## ETL PostgreSQL → MongoDB (etl-postgres-mongodb)
 
 Proyecto ETL incremental en Node.js para sincronizar pedidos desde PostgreSQL (Supabase) hacia MongoDB (Atlas), consolidando información relacional en documentos listos para analítica.
 
-## ¿Qué hace este proyecto?
+### ¿Qué hace este proyecto?
+1. **EXTRACT**: consulta órdenes nuevas usando **watermark** (`order_purchase_timestamp > lastSync`).
+2. **TRANSFORM**: consolida datos de 8 tablas (órdenes, clientes, geo, ítems, productos, categorías, vendedores, pagos y reseñas) incluyendo métricas pre-calculadas como `totals` y `logistics`.
+3. **LOAD**: hace **upsert** en colecciones `order_analytics` y `reviews_analytics`.
+4. **WATERMARK**: actualiza `watermark.json` al terminar.
+5. **RECONCILIACIÓN**: compara conteo de órdenes de PG vs documentos en MongoDB.
 
-Este ETL realiza el flujo completo:
-
-1. **EXTRACT**: consulta órdenes nuevas desde PostgreSQL usando un **watermark** (`order_purchase_timestamp > lastSync`).
-2. **TRANSFORM**: para cada orden, consolida:
-   - Datos de `orders`
-   - Datos de `customers`
-   - Geolocalización (`city`, `state`) desde `dim_geolocation_zip` (por `zip_code_prefix`)
-   - Ítems desde `order_items` + categoría en inglés (`products` → `product_categories`) + estado del vendedor (`sellers` → `dim_geolocation_zip`)
-   - Pagos desde `order_payments`
-   - Reseña desde `order_reviews` (contenido en JSONB `review_content`, periodo en TSTZRANGE `review_response_period`)
-   - Métricas pre-calculadas: `totals` (Computed Pattern) y `logistics`
-3. **LOAD**: hace **upsert** en MongoDB:
-   - Colección `order_analytics` usando `order_id` como clave.
-   - Colección `reviews_analytics` usando `review_id` (solo si el pedido tiene reseña).
-4. Actualiza el watermark en `watermark.json` cuando la sincronización termina correctamente.
-5. Ejecuta **reconciliación** comparando conteo de órdenes de PostgreSQL vs documentos en MongoDB.
-
-También incluye scheduler con `node-cron` para correr automáticamente cada 5 minutos, propuesto solo para casos de prueba.
-
-### Tablas de origen (PostgreSQL — esquema `ecommerce`)
-
-| Tabla | Rol en el ETL |
-|---|---|
-| `orders` | Pedido (entidad principal, dispara el watermark) |
-| `customers` | Cliente (`customer_unique_id`, `customer_zip_code_prefix`) |
-| `dim_geolocation_zip` | Geolocalización por ZIP (`city`, `state`) para cliente y vendedor |
-| `order_items` | Ítems del pedido (`price`, `freight_value`, `shipping_limit_date`) |
-| `products` / `product_categories` | Categoría del producto (traducción a inglés) |
-| `sellers` | Vendedor (para obtener su estado por ZIP) |
-| `order_payments` | Pagos del pedido |
-| `order_reviews` | Reseña (`review_content` JSONB, `review_response_period` TSTZRANGE) |
-
-### Colecciones destino (MongoDB — base `ecommify_analytics`)
-
-| Colección | Clave de upsert | Estado |
-|---|---|---|
-| `order_analytics` | `order_id` | Sincronizada por el ETL |
-| `reviews_analytics` | `review_id` | Sincronizada por el ETL |
-| `product_catalog` | `product_id` | Agregado (job de agregación aparte) |
-| `user_behavior` | `customer_unique_id` + `period` | Agregado (job de agregación aparte) |
-| `geo_sales_summary` | `state` + `period` | Agregado (job de agregación aparte) |
-
-## Estructura
-
-```bash
+### Estructura
+```text
 etl-postgres-mongodb/
-├── package.json
-├── .env
-├── .gitignore
 ├── src/
-│   ├── index.js
-│   ├── etl.js
-│   ├── db/
-│   │   ├── postgres.js
-│   │   └── mongodb.js
-│   └── utils/
-│       ├── watermark.js
-│       └── logger.js
-└── watermark.json
+│   ├── db/          ← Conexiones postgres y mongodb
+│   ├── etl.js       ← Lógica de transformación
+│   └── index.js     ← Punto de entrada
+├── watermark.json   ← Control incremental
+└── .env             ← Variables de entorno
 ```
 
-## Requisitos previos
+### Requisitos previos
+- Node.js 18+, npm 9+.
+- Acceso a PostgreSQL (Supabase) y MongoDB (Atlas).
 
-- Node.js 18+ (recomendado 18 o 20)
-- npm 9+
-- Acceso a PostgreSQL (Supabase)
-- Acceso a MongoDB (Atlas)
+### Instalación paso a paso
+```bash
+cd etl-postgres-mongodb
+npm install
+cp .env.example .env
+# Editar .env con tus credenciales
+```
 
-## Instalación paso a paso
-
-1. Clona o descarga el proyecto.
-2. Entra en la carpeta del proyecto:
-
-   ```bash
-   cd etl-postgres-mongodb
-   ```
-
-3. Instala dependencias:
-
-   ```bash
-   npm install
-   ```
-
-4. Crea tu archivo `.env` a partir del ejemplo:
-
-   ```bash
-   cp .env.example .env
-   ```
-
-5. Edita `.env` con tus credenciales reales.
-
-## Configuración de variables de entorno
-
-Archivo `.env`:
-
+### Configuración de variables de entorno
 ```env
 POSTGRESQL_URL=postgresql://usuario:password@host:5432/base_de_datos
 POSTGRESQL_SCHEMA=ecommerce
-MONGODB_URL=mongodb+srv://usuario:password@cluster.mongodb.net/ecommify_analytics?retryWrites=true&w=majority
+MONGODB_URL=mongodb+srv://usuario:password@cluster.mongodb.net/ecommify_analytics
 MONGODB_DB_NAME=ecommify_analytics_v1
 ```
 
-### Notas
+### Comandos disponibles
+- `npm start`: Modo scheduler (corre cada 5 minutos).
+- `npm run sync`: Ejecución manual de una sola corrida.
 
-- `POSTGRESQL_URL`: cadena de conexión completa a PostgreSQL.
-- `POSTGRESQL_SCHEMA`: esquema objetivo en PostgreSQL (por defecto `ecommerce`).
-- `MONGODB_URL`: cadena de conexión de MongoDB Atlas (o instancia local).
-- `MONGODB_DB_NAME`: opcional si ya viene la base en la URL; útil para fijar el nombre explícitamente.
+### Funcionamiento interno
 
-## Configuración del esquema PostgreSQL (`ecommerce`)
+#### Watermark
+Se guarda en `watermark.json`. Si no existe, usa `2000-01-01T00:00:00.000Z` por defecto.
 
-Este proyecto está preparado para trabajar sobre el esquema `ecommerce` en PostgreSQL:
+#### Upsert en MongoDB
+- `order_analytics`: Incluye subdocumentos `customer`, arrays `items`, `payments`, campo `review` embebido, y objetos `totals` (Computed Pattern) y `logistics`.
+- `reviews_analytics`: Guarda reseñas con tags y métricas de tiempo de respuesta.
 
-1. En la conexión se envía `search_path` para priorizar ese esquema.
-2. Todas las consultas SQL del ETL usan formato explícito `esquema.tabla` (por ejemplo, `ecommerce.orders`).
+#### Reconciliación
+Registra la diferencia entre `COUNT(*)` de PG y `countDocuments` de MongoDB para detectar desajustes.
 
-Ejemplo recomendado en `.env`:
+### Troubleshooting Básico
+1. **Error variable de entorno:** Revisa el archivo `.env`.
+2. **Timeout PG:** Revisa host, puerto y permisos en Supabase.
+3. **IP Allowlist Atlas:** Valida permisos de acceso en red de MongoDB Atlas.
+4. **No sincroniza:** Revisa `watermark.json` o intenta ejecutar manualmente con `npm run sync`.
 
-```env
-POSTGRESQL_URL=postgresql://usuario:password@host:5432/base_de_datos
-POSTGRESQL_SCHEMA=ecommerce
-```
-
-Si el esquema tiene otro nombre, cambia `POSTGRESQL_SCHEMA` y actualiza los prefijos de tabla en las queries SQL para mantener consistencia.
-
-## Comandos disponibles
-
-- **Modo scheduler (cada 5 minutos):**
-
-  ```bash
-  npm start
-  ```
-
-- **Ejecución manual de una sola corrida ETL:**
-
-  ```bash
-  npm run sync
-  ```
-
-## Funcionamiento interno
-
-### Watermark
-
-- Se guarda en `watermark.json` bajo la clave `lastSync`.
-- Si el archivo no existe o es inválido, usa fecha por defecto:
-  - `2000-01-01T00:00:00.000Z`
-
-### Upsert en MongoDB
-
-En la colección `order_analytics`, cada pedido se guarda con:
-
-- Datos base del pedido (`order_id`, `status`, fechas)
-- Subdocumento `customer` (incluye `city`, `state`, `zip_code_prefix`)
-- Array `items` (con `product_category` en inglés y `seller_state`)
-- Array `payments`
-- Campo `review` embebido (objeto o `null`) con `tags` derivados
-- `totals` (Computed Pattern): `items_count`, `total_product_value`, `total_freight`, `total_payment`
-- `logistics`: `delivery_days`, `estimated_days`, `on_time`
-- `has_overflow` (Outlier Pattern)
-- Metadata `_sync`:
-  - `source: "postgresql_etl"`
-  - `synced_at: <Date>`
-
-En la colección `reviews_analytics`, cada reseña se guarda con `text`, `tags` (incluye `score_N`), `response_time_hours`, y referencias `product_ids` / `product_categories` / `seller_ids`.
-
-### Reconciliación
-
-En cada corrida ETL se registra:
-
-- `COUNT(*)` de `orders` en PostgreSQL
-- `countDocuments({})` de `order_analytics` en MongoDB
-- Diferencia entre ambos conteos
-
-## Troubleshooting básico
-
-### 1) Error: falta variable de entorno
-
-Verifica que exista `.env` y que tenga:
-- `POSTGRESQL_URL`
-- `MONGODB_URL`
-
-### 2) Error de conexión PostgreSQL (timeout/autenticación)
-
-- Revisa host, usuario, password, puerto y nombre de base.
-- Si usas Supabase, confirma permisos de red y credenciales activas.
-
-### 3) Error de conexión MongoDB Atlas
-
-- Revisa usuario/password y nombre de cluster en `MONGODB_URL`.
-- Valida IP allowlist en Atlas (Network Access).
-
-### 4) No aparecen nuevas órdenes en MongoDB
-
-- Revisa `watermark.json` (puede estar avanzado).
-- Ejecuta manualmente `npm run sync` y revisa logs.
-- Si necesitas resincronizar desde cero, ajusta `lastSync` a una fecha más antigua.
-
-### 5) Diferencias en reconciliación
-
-La reconciliación puede mostrar diferencias por:
-- Filtros incrementales por watermark
-- Órdenes históricas aún no sincronizadas
-- Cambios en tablas fuente después de la última corrida
-
+---
 
 ## Referencias
-
 - [MongoDB Data Modeling](https://www.mongodb.com/docs/manual/data-modeling/)
 - [Aggregation Pipeline](https://www.mongodb.com/docs/manual/aggregation/)
 - [Building with Patterns](https://www.mongodb.com/blog/post/building-with-patterns-a-summary)
