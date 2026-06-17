@@ -105,6 +105,219 @@ load("scripts/05_explain_analysis.js")
 | 4 | Q12: Productos pesados | Cast JSONB a numeric | Campo numérico nativo |
 | 5 | Q7: Pagos por tipo | Single-table | $unwind + $group |
 
+
+
+# ETL PostgreSQL → MongoDB (etl-postgres-mongodb)
+
+Proyecto ETL incremental en Node.js para sincronizar pedidos desde PostgreSQL (Supabase) hacia MongoDB (Atlas), consolidando información relacional en documentos listos para analítica.
+
+## ¿Qué hace este proyecto?
+
+Este ETL realiza el flujo completo:
+
+1. **EXTRACT**: consulta órdenes nuevas desde PostgreSQL usando un **watermark** (`order_purchase_timestamp > lastSync`).
+2. **TRANSFORM**: para cada orden, consolida:
+   - Datos de `orders`
+   - Datos de `customers`
+   - Geolocalización (`city`, `state`) desde `dim_geolocation_zip` (por `zip_code_prefix`)
+   - Ítems desde `order_items` + categoría en inglés (`products` → `product_categories`) + estado del vendedor (`sellers` → `dim_geolocation_zip`)
+   - Pagos desde `order_payments`
+   - Reseña desde `order_reviews` (contenido en JSONB `review_content`, periodo en TSTZRANGE `review_response_period`)
+   - Métricas pre-calculadas: `totals` (Computed Pattern) y `logistics`
+3. **LOAD**: hace **upsert** en MongoDB:
+   - Colección `order_analytics` usando `order_id` como clave.
+   - Colección `reviews_analytics` usando `review_id` (solo si el pedido tiene reseña).
+4. Actualiza el watermark en `watermark.json` cuando la sincronización termina correctamente.
+5. Ejecuta **reconciliación** comparando conteo de órdenes de PostgreSQL vs documentos en MongoDB.
+
+También incluye scheduler con `node-cron` para correr automáticamente cada 5 minutos, propuesto solo para casos de prueba.
+
+### Tablas de origen (PostgreSQL — esquema `ecommerce`)
+
+| Tabla | Rol en el ETL |
+|---|---|
+| `orders` | Pedido (entidad principal, dispara el watermark) |
+| `customers` | Cliente (`customer_unique_id`, `customer_zip_code_prefix`) |
+| `dim_geolocation_zip` | Geolocalización por ZIP (`city`, `state`) para cliente y vendedor |
+| `order_items` | Ítems del pedido (`price`, `freight_value`, `shipping_limit_date`) |
+| `products` / `product_categories` | Categoría del producto (traducción a inglés) |
+| `sellers` | Vendedor (para obtener su estado por ZIP) |
+| `order_payments` | Pagos del pedido |
+| `order_reviews` | Reseña (`review_content` JSONB, `review_response_period` TSTZRANGE) |
+
+### Colecciones destino (MongoDB — base `ecommify_analytics`)
+
+| Colección | Clave de upsert | Estado |
+|---|---|---|
+| `order_analytics` | `order_id` | ✅ Sincronizada por el ETL |
+| `reviews_analytics` | `review_id` | ✅ Sincronizada por el ETL |
+| `product_catalog` | `product_id` | ⏳ Agregado (job de agregación aparte) |
+| `user_behavior` | `customer_unique_id` + `period` | ⏳ Agregado (job de agregación aparte) |
+| `geo_sales_summary` | `state` + `period` | ⏳ Agregado (job de agregación aparte) |
+
+## Estructura
+
+```bash
+etl-postgres-mongodb/
+├── package.json
+├── .env
+├── .gitignore
+├── src/
+│   ├── index.js
+│   ├── etl.js
+│   ├── db/
+│   │   ├── postgres.js
+│   │   └── mongodb.js
+│   └── utils/
+│       ├── watermark.js
+│       └── logger.js
+└── watermark.json
+```
+
+## Requisitos previos
+
+- Node.js 18+ (recomendado 18 o 20)
+- npm 9+
+- Acceso a PostgreSQL (Supabase)
+- Acceso a MongoDB (Atlas)
+
+## Instalación paso a paso
+
+1. Clona o descarga el proyecto.
+2. Entra en la carpeta del proyecto:
+
+   ```bash
+   cd etl-postgres-mongodb
+   ```
+
+3. Instala dependencias:
+
+   ```bash
+   npm install
+   ```
+
+4. Crea tu archivo `.env` a partir del ejemplo:
+
+   ```bash
+   cp .env.example .env
+   ```
+
+5. Edita `.env` con tus credenciales reales.
+
+## Configuración de variables de entorno
+
+Archivo `.env`:
+
+```env
+POSTGRESQL_URL=postgresql://usuario:password@host:5432/base_de_datos
+POSTGRESQL_SCHEMA=ecommerce
+MONGODB_URL=mongodb+srv://usuario:password@cluster.mongodb.net/ecommify_analytics?retryWrites=true&w=majority
+MONGODB_DB_NAME=ecommify_analytics_v1
+```
+
+### Notas
+
+- `POSTGRESQL_URL`: cadena de conexión completa a PostgreSQL.
+- `POSTGRESQL_SCHEMA`: esquema objetivo en PostgreSQL (por defecto `ecommerce`).
+- `MONGODB_URL`: cadena de conexión de MongoDB Atlas (o instancia local).
+- `MONGODB_DB_NAME`: opcional si ya viene la base en la URL; útil para fijar el nombre explícitamente.
+
+## Configuración del esquema PostgreSQL (`ecommerce`)
+
+Este proyecto está preparado para trabajar sobre el esquema `ecommerce` en PostgreSQL:
+
+1. En la conexión se envía `search_path` para priorizar ese esquema.
+2. Todas las consultas SQL del ETL usan formato explícito `esquema.tabla` (por ejemplo, `ecommerce.orders`).
+
+Ejemplo recomendado en `.env`:
+
+```env
+POSTGRESQL_URL=postgresql://usuario:password@host:5432/base_de_datos
+POSTGRESQL_SCHEMA=ecommerce
+```
+
+Si el esquema tiene otro nombre, cambia `POSTGRESQL_SCHEMA` y actualiza los prefijos de tabla en las queries SQL para mantener consistencia.
+
+## Comandos disponibles
+
+- **Modo scheduler (cada 5 minutos):**
+
+  ```bash
+  npm start
+  ```
+
+- **Ejecución manual de una sola corrida ETL:**
+
+  ```bash
+  npm run sync
+  ```
+
+## Funcionamiento interno
+
+### Watermark
+
+- Se guarda en `watermark.json` bajo la clave `lastSync`.
+- Si el archivo no existe o es inválido, usa fecha por defecto:
+  - `2000-01-01T00:00:00.000Z`
+
+### Upsert en MongoDB
+
+En la colección `order_analytics`, cada pedido se guarda con:
+
+- Datos base del pedido (`order_id`, `status`, fechas)
+- Subdocumento `customer` (incluye `city`, `state`, `zip_code_prefix`)
+- Array `items` (con `product_category` en inglés y `seller_state`)
+- Array `payments`
+- Campo `review` embebido (objeto o `null`) con `tags` derivados
+- `totals` (Computed Pattern): `items_count`, `total_product_value`, `total_freight`, `total_payment`
+- `logistics`: `delivery_days`, `estimated_days`, `on_time`
+- `has_overflow` (Outlier Pattern)
+- Metadata `_sync`:
+  - `source: "postgresql_etl"`
+  - `synced_at: <Date>`
+
+En la colección `reviews_analytics`, cada reseña se guarda con `text`, `tags` (incluye `score_N`), `response_time_hours`, y referencias `product_ids` / `product_categories` / `seller_ids`.
+
+### Reconciliación
+
+En cada corrida ETL se registra:
+
+- `COUNT(*)` de `orders` en PostgreSQL
+- `countDocuments({})` de `order_analytics` en MongoDB
+- Diferencia entre ambos conteos
+
+## Troubleshooting básico
+
+### 1) Error: falta variable de entorno
+
+Verifica que exista `.env` y que tenga:
+- `POSTGRESQL_URL`
+- `MONGODB_URL`
+
+### 2) Error de conexión PostgreSQL (timeout/autenticación)
+
+- Revisa host, usuario, password, puerto y nombre de base.
+- Si usas Supabase, confirma permisos de red y credenciales activas.
+
+### 3) Error de conexión MongoDB Atlas
+
+- Revisa usuario/password y nombre de cluster en `MONGODB_URL`.
+- Valida IP allowlist en Atlas (Network Access).
+
+### 4) No aparecen nuevas órdenes en MongoDB
+
+- Revisa `watermark.json` (puede estar avanzado).
+- Ejecuta manualmente `npm run sync` y revisa logs.
+- Si necesitas resincronizar desde cero, ajusta `lastSync` a una fecha más antigua.
+
+### 5) Diferencias en reconciliación
+
+La reconciliación puede mostrar diferencias por:
+- Filtros incrementales por watermark
+- Órdenes históricas aún no sincronizadas
+- Cambios en tablas fuente después de la última corrida
+
+
 ## Referencias
 
 - [MongoDB Data Modeling](https://www.mongodb.com/docs/manual/data-modeling/)
