@@ -341,3 +341,26 @@ postgresql/
 └── evidencias
     └── screenshots
 ```
+
+# Datos fuente
+
+Esta carpeta contiene los archivos CSV usados para poblar el esquema `ecommerce`.
+
+| Archivo | Descripción | Filas |
+|---|---|---:|
+| `customers.csv` | Clientes y prefijo postal. | 99.441 |
+| `sellers.csv` | Vendedores y prefijo postal. | 3.095 |
+| `dim_geolocation1_zip.csv` | Dimensión geográfica por prefijo postal, ciudad, estado y coordenadas promedio. | 15.078 |
+| `product_categories.csv` | Catálogo de categorías y equivalencia en inglés. | 71 |
+| `products.csv` | Productos y especificaciones en JSON. | 32.951 |
+| `orders.csv` | Órdenes de compra y fechas del ciclo de pedido. | 99.441 |
+| `order_items.csv` | Ítems de las órdenes, producto, vendedor, precio y flete. | 112.650 |
+| `order_payments.csv` | Pagos, tipo de pago, cuotas y valor. | 103.886 |
+| `order_reviews.csv` | Reseñas, calificación, contenido y periodo de respuesta. | 99.224 |
+
+## Observaciones de carga
+
+- `products.csv` usa delimitador `;` porque contiene JSON en una columna.
+- `dim_geolocation1_zip.csv` usa delimitador `;` e incluye columnas auxiliares `latitude_avg` y `longitude_avg`.
+- Los demás archivos usan delimitador `,`.
+- Verificar licencia y autorización de publicación antes de subir datos a un repositorio público.
