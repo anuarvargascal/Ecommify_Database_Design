@@ -149,11 +149,11 @@ También incluye scheduler con `node-cron` para correr automáticamente cada 5 m
 
 | Colección | Clave de upsert | Estado |
 |---|---|---|
-| `order_analytics` | `order_id` | ✅ Sincronizada por el ETL |
-| `reviews_analytics` | `review_id` | ✅ Sincronizada por el ETL |
-| `product_catalog` | `product_id` | ⏳ Agregado (job de agregación aparte) |
-| `user_behavior` | `customer_unique_id` + `period` | ⏳ Agregado (job de agregación aparte) |
-| `geo_sales_summary` | `state` + `period` | ⏳ Agregado (job de agregación aparte) |
+| `order_analytics` | `order_id` | Sincronizada por el ETL |
+| `reviews_analytics` | `review_id` | Sincronizada por el ETL |
+| `product_catalog` | `product_id` | Agregado (job de agregación aparte) |
+| `user_behavior` | `customer_unique_id` + `period` | Agregado (job de agregación aparte) |
+| `geo_sales_summary` | `state` + `period` | Agregado (job de agregación aparte) |
 
 ## Estructura
 
